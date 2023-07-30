@@ -50,6 +50,7 @@ Pass* createFlattenPass();
 Pass* createFuncCastEmulationPass();
 Pass* createFullPrinterPass();
 Pass* createFunctionMetricsPass();
+Pass* createGCLoweringPass();
 Pass* createGenerateDynCallsPass();
 Pass* createGenerateI64DynCallsPass();
 Pass* createGenerateGlobalEffectsPass();
