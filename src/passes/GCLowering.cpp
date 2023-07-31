@@ -63,8 +63,8 @@ struct GCLowering
     }
 
     auto structLocal = builder.addVar(getFunction(), Type::i32);
-    auto block =
-      builder.makeBlock({builder.makeLocalSet(structLocal, structNewCall)});
+    auto block = builder.makeBlock(
+      {builder.makeLocalSet(structLocal, structNewCall)}, Type::i32);
 
     for (size_t i = 0; i < structInfo.fields.size(); i++) {
       auto& field = structInfo.fields[i];
