@@ -20,14 +20,8 @@
 // as the data is present in linear memory with proper alignment.
 //
 
-#include "literal.h"
 #include "pass.h"
 #include "wasm-builder.h"
-#include "wasm-traversal.h"
-#include "wasm-type.h"
-#include "wasm.h"
-#include <limits>
-#include <unordered_map>
 
 namespace wasm {
 
