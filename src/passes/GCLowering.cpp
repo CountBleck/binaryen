@@ -80,7 +80,7 @@ struct GCLowering
   }
 
   void visitStructGet(StructGet* expr) {
-    assert(expr->type == Type::i32);
+    assert(expr->ref->type == Type::i32);
     auto& originalType = getOriginalType(expr->ref);
     auto& structInfo = getLoweredStructInfo(originalType.getHeapType());
     auto& field = structInfo.fields[expr->index];
