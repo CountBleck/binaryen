@@ -79,7 +79,6 @@ struct GCLowering
     }
 
     block->list.push_back(builder.makeLocalGet(structLocal, Type::i32));
-    block->finalize(Type::i32, Block::NoBreak);
     originalTypes[block] = expr->type;
     replaceCurrent(block);
   }
@@ -97,7 +96,6 @@ struct GCLowering
                                  expr->ref,
                                  field.loweredType,
                                  memoryName);
-    load->finalize();
     originalTypes[load] = expr->type;
     replaceCurrent(load);
   }
