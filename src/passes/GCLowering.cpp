@@ -84,20 +84,26 @@ struct GCLowering
   }
 
   void visitStructGet(StructGet* expr) {
+    assert(expr->type == Type::i32);
     auto& structInfo =
       getLoweredStructInfo(getOriginalType(expr->ref).getHeapType());
     auto& field = structInfo.fields[expr->index];
     Builder builder(*getModule());
 
-    auto load = builder.makeLoad(field.size,
-                                 expr->signed_,
-                                 field.offset,
-                                 field.size,
-                                 expr->ref,
-                                 field.loweredType,
-                                 memoryName);
-    originalTypes[load] = expr->type;
-    replaceCurrent(load);
+    auto structLocal = builder.addVar(getFunction(), Type::i32);
+    auto nullCheck = builder.makeIf(
+      builder.makeLocalTee(structLocal, expr->ref, Type::i32),
+      builder.makeLoad(field.size,
+                       expr->signed_,
+                       field.offset,
+                       field.size,
+                       builder.makeLocalGet(structLocal, Type::i32),
+                       field.loweredType,
+                       memoryName),
+      builder.makeUnreachable(),
+      field.loweredType);
+    originalTypes[nullCheck] = expr->type;
+    replaceCurrent(nullCheck);
   }
 
   void doWalkModule(Module* module) {
