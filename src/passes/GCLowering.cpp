@@ -116,6 +116,13 @@ struct GCLowering
     replaceCurrent(lowered);
   }
 
+  void visitFunction(Function* func) {
+    auto signature = func->getSig();
+    func->vars = lowerTypeList(func->vars);
+    func->type =
+      Signature(lowerType(signature.params), lowerType(signature.results));
+  }
+
   void doWalkModule(Module* module) {
     memoryName = module->memories[0]->name;
     structs.clear();
@@ -179,9 +186,21 @@ private:
   }
 
   Type lowerType(const Type& type) {
+    if (type.isTuple()) {
+      return lowerTypeList(type.getTuple());
+    }
+
     auto& loweredType = type.isStruct() || type.isArray() ? Type::i32 : type;
     assert(!loweredType.isRef());
     return loweredType;
+  }
+
+  TypeList lowerTypeList(const TypeList& types) {
+    TypeList loweredTypes;
+    for (auto& type : types) {
+      loweredTypes.push_back(lowerType(type));
+    }
+    return loweredTypes;
   }
 };
 
