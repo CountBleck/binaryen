@@ -85,25 +85,35 @@ struct GCLowering
 
   void visitStructGet(StructGet* expr) {
     assert(expr->type == Type::i32);
-    auto& structInfo =
-      getLoweredStructInfo(getOriginalType(expr->ref).getHeapType());
+    auto& originalType = getOriginalType(expr->ref);
+    auto& structInfo = getLoweredStructInfo(originalType.getHeapType());
     auto& field = structInfo.fields[expr->index];
     Builder builder(*getModule());
 
-    auto structLocal = builder.addVar(getFunction(), Type::i32);
-    auto nullCheck = builder.makeIf(
-      builder.makeLocalTee(structLocal, expr->ref, Type::i32),
-      builder.makeLoad(field.size,
-                       expr->signed_,
-                       field.offset,
-                       field.size,
-                       builder.makeLocalGet(structLocal, Type::i32),
-                       field.loweredType,
-                       memoryName),
-      builder.makeUnreachable(),
-      field.loweredType);
-    originalTypes[nullCheck] = expr->type;
-    replaceCurrent(nullCheck);
+    auto makeLoad = [&](Expression* structRef) {
+      return builder.makeLoad(field.size,
+                              expr->signed_,
+                              field.offset,
+                              field.size,
+                              structRef,
+                              field.loweredType,
+                              memoryName);
+    };
+
+    Expression* lowered;
+    if (originalType.isNullable()) {
+      auto structLocal = builder.addVar(getFunction(), Type::i32);
+      lowered =
+        builder.makeIf(builder.makeLocalTee(structLocal, expr->ref, Type::i32),
+                       makeLoad(builder.makeLocalGet(structLocal, Type::i32)),
+                       builder.makeUnreachable(),
+                       field.loweredType);
+    } else {
+      lowered = makeLoad(expr->ref);
+    }
+
+    originalTypes[lowered] = expr->type;
+    replaceCurrent(lowered);
   }
 
   void doWalkModule(Module* module) {
