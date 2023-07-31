@@ -28,6 +28,8 @@ namespace wasm {
 static const Name STRUCT_NEW("__gc_lowering_struct_new");
 static const Name GET_RTT("__gc_lowering_get_rtt");
 
+static const Name GC_LOWERING_MEMORY("__gc_lowering_memory");
+
 struct GCLowering
   : public WalkerPass<
       PostWalker<GCLowering, UnifiedExpressionVisitor<GCLowering>>> {
@@ -118,7 +120,15 @@ struct GCLowering
   }
 
   void doWalkModule(Module* module) {
-    memoryName = module->memories[0]->name;
+    auto& memories = module->memories;
+    if (!memories.size()) {
+      Builder builder(*module);
+      module->addMemory(builder.makeMemory(GC_LOWERING_MEMORY));
+      memoryName = GC_LOWERING_MEMORY;
+    } else {
+      memoryName = memories[0]->name;
+    }
+
     structs.clear();
     arrays.clear();
     super::doWalkModule(module);
