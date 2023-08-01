@@ -80,36 +80,31 @@ struct GCLowering
   }
 
   void visitStructGet(StructGet* expr) {
-    assert(expr->ref->type == Type::i32);
-    auto& originalType = getOriginalType(expr->ref);
-    auto& structInfo = getLoweredStructInfo(originalType.getHeapType());
-    auto& field = structInfo.fields[expr->index];
-    Builder builder(*getModule());
+    lowerStructGetSet(
+      expr,
+      [&](Expression* structRef, Builder& builder, const FieldInfo& field) {
+        return builder.makeLoad(field.size,
+                                expr->signed_,
+                                field.offset,
+                                field.size,
+                                structRef,
+                                field.loweredType,
+                                memoryName);
+      });
+  }
 
-    auto makeLoad = [&](Expression* structRef) {
-      return builder.makeLoad(field.size,
-                              expr->signed_,
-                              field.offset,
-                              field.size,
-                              structRef,
-                              field.loweredType,
-                              memoryName);
-    };
-
-    Expression* lowered;
-    if (originalType.isNullable()) {
-      auto structLocal = builder.addVar(getFunction(), Type::i32);
-      lowered =
-        builder.makeIf(builder.makeLocalTee(structLocal, expr->ref, Type::i32),
-                       makeLoad(builder.makeLocalGet(structLocal, Type::i32)),
-                       builder.makeUnreachable(),
-                       field.loweredType);
-    } else {
-      lowered = makeLoad(expr->ref);
-    }
-
-    originalTypes[lowered] = expr->type;
-    replaceCurrent(lowered);
+  void visitStructSet(StructSet* expr) {
+    lowerStructGetSet(
+      expr,
+      [&](Expression* structRef, Builder& builder, const FieldInfo& field) {
+        return builder.makeStore(field.size,
+                                 field.offset,
+                                 field.size,
+                                 structRef,
+                                 expr->value,
+                                 field.loweredType,
+                                 memoryName);
+      });
   }
 
   void visitFunction(Function* func) {
@@ -205,6 +200,30 @@ private:
       loweredTypes.push_back(lowerType(type));
     }
     return loweredTypes;
+  }
+
+  template<typename StructGetSet, typename Callback>
+  void lowerStructGetSet(StructGetSet* expr, Callback callback) {
+    assert(expr->ref->type == Type::i32);
+    auto& originalType = getOriginalType(expr->ref);
+    auto& structInfo = getLoweredStructInfo(originalType.getHeapType());
+    auto& field = structInfo.fields[expr->index];
+    Builder builder(*getModule());
+
+    Expression* lowered;
+    if (originalType.isNullable()) {
+      auto structLocal = builder.addVar(getFunction(), Type::i32);
+      lowered = builder.makeIf(
+        builder.makeLocalTee(structLocal, expr->ref, Type::i32),
+        callback(builder.makeLocalGet(structLocal, Type::i32), builder, field),
+        builder.makeUnreachable(),
+        field.loweredType);
+    } else {
+      lowered = callback(expr->ref, builder, field);
+    }
+
+    originalTypes[lowered] = expr->type;
+    replaceCurrent(lowered);
   }
 };
 
