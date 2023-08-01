@@ -45,6 +45,16 @@ struct GCLowering
     }
   }
 
+  void visitRefEq(RefEq* expr) {
+    assert(expr->left->type == Type::i32 && expr->right->type == Type::i32);
+
+    // Registering with originalTypes isn't necessary, since the type remains
+    // the same.
+    Builder builder(*getModule());
+    replaceCurrent(
+      builder.makeBinary(BinaryOp::EqInt32, expr->left, expr->right));
+  }
+
   void visitStructNew(StructNew* expr) {
     auto heapType = expr->type.getHeapType();
     auto& structInfo = getLoweredStructInfo(heapType);
