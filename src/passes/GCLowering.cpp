@@ -174,10 +174,8 @@ private:
   Name memoryName;
   std::unordered_map<HeapType, StructInfo> structs;
   std::unordered_map<HeapType, uint32_t> arrays;
-  // FIXME: The pass probably shouldn't be storing every replaced node in a map.
   std::unordered_map<Expression*, Type> originalTypes;
 
-  // FIXME: See above.
   const Type& getOriginalType(Expression* expr) {
     auto iterator = originalTypes.find(expr);
     return iterator != originalTypes.end() ? iterator->second : expr->type;
