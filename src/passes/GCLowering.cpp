@@ -39,9 +39,10 @@ struct GCLowering
       PostWalker<GCLowering, UnifiedExpressionVisitor<GCLowering>>> {
 
   void visitExpression(Expression* expr) {
-    if (expr->type.isStruct() || expr->type.isArray()) {
+    auto loweredType = lowerType(expr->type);
+    if (expr->type != loweredType) {
       originalTypes[expr] = expr->type;
-      expr->type = Type::i32;
+      expr->type = loweredType;
     }
   }
 
@@ -215,9 +216,16 @@ private:
       return lowerTypeList(type.getTuple());
     }
 
-    auto& loweredType = type.isStruct() || type.isArray() ? Type::i32 : type;
-    assert(!loweredType.isRef());
-    return loweredType;
+    if (!type.isRef()) {
+      return type;
+    }
+
+    auto heapType = type.getHeapType();
+    assert(heapType.getBottom() == HeapType::none && !heapType.isString() &&
+           heapType != HeapType::stringview_iter &&
+           heapType != HeapType::stringview_wtf16 &&
+           heapType != HeapType::stringview_wtf8);
+    return Type::i32;
   }
 
   TypeList lowerTypeList(const TypeList& types) {
