@@ -22,6 +22,7 @@
 
 #include "pass.h"
 #include "wasm-builder.h"
+#include "wasm.h"
 
 namespace wasm {
 
@@ -54,6 +55,19 @@ struct GCLowering
     Builder builder(*getModule());
     replaceCurrent(
       builder.makeBinary(BinaryOp::EqInt32, expr->left, expr->right));
+  }
+
+  void visitRefNull(RefNull* expr) {
+    if (!expr->type.isRef() ||
+        expr->type.getHeapType().getBottom() != HeapType::none) {
+      return;
+    }
+
+    Builder builder(*getModule());
+
+    auto null = builder.makeConst(Literal::makeZero(Type::i32));
+    originalTypes[null] = expr->type;
+    replaceCurrent(null);
   }
 
   void visitStructNew(StructNew* expr) {
