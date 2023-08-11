@@ -29,9 +29,7 @@ namespace wasm {
 static const Name STRUCT_NEW("__gc_lowering_struct_new");
 static const Name GET_RTT("__gc_lowering_get_rtt");
 
-static const std::unordered_map<Name, Name> DUMMY_EXPORTS = {
-  {"__gc_lowering_struct_new_dummy_export", STRUCT_NEW},
-  {"__gc_lowering_get_rtt_dummy_export", GET_RTT}};
+static const std::unordered_set<Name> HELPERS = {STRUCT_NEW, GET_RTT};
 
 static const Name GC_LOWERING_MEMORY("__gc_lowering_memory");
 
@@ -190,12 +188,13 @@ struct GCLowering
         return false;
       }
 
-      auto iterator = DUMMY_EXPORTS.find(exportMember->name);
-      if (iterator == DUMMY_EXPORTS.end()) {
+      auto helperName = exportMember->value;
+      if (!HELPERS.count(helperName)) {
         return false;
       }
 
-      return iterator->second == exportMember->value;
+      return exportMember->name.toString() ==
+             helperName.toString() + "_dummy_export";
     });
 
     originalTypes.clear();
