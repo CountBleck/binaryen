@@ -22,7 +22,6 @@
 
 #include "pass.h"
 #include "wasm-builder.h"
-#include "wasm.h"
 
 namespace wasm {
 
