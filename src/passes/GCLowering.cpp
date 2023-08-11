@@ -70,6 +70,34 @@ struct GCLowering
     replaceCurrent(null);
   }
 
+  void visitI31New(I31New* expr) {
+    Builder builder(*getModule());
+
+    // This i31ref polyfill relies on GC allocations always having an alignment
+    // of at least 2. That allows the LSB to signify whether a reference is an
+    // i31ref.
+    auto lowered = builder.makeBinary(
+      BinaryOp::OrInt32,
+      builder.makeBinary(
+        BinaryOp::ShlInt32, expr->value, builder.makeConst<uint32_t>(1)),
+      builder.makeConst<uint32_t>(1));
+
+    originalTypes[lowered] = expr->type;
+    replaceCurrent(lowered);
+  }
+
+  void visitI31Get(I31Get* expr) {
+    Builder builder(*getModule());
+
+    auto lowered = builder.makeBinary(expr->signed_ ? BinaryOp::ShrSInt32
+                                                    : BinaryOp::ShrUInt32,
+                                      expr->i31,
+                                      builder.makeConst<uint32_t>(1));
+
+    originalTypes[lowered] = expr->type;
+    replaceCurrent(lowered);
+  }
+
   void visitStructNew(StructNew* expr) {
     auto heapType = expr->type.getHeapType();
     auto& structInfo = getLoweredStructInfo(heapType);
