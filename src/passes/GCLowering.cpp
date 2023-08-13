@@ -62,7 +62,7 @@ struct GCLowering
 
     Builder builder(*getModule());
 
-    auto null = builder.makeConst(Literal::makeZero(Type::i32));
+    auto null = builder.makeConst<uint32_t>(0);
     originalTypes[null] = expr->type;
     replaceCurrent(null);
   }
