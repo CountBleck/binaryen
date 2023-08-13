@@ -233,8 +233,8 @@ private:
 
     for (auto& field : heapType.getStruct().fields) {
       auto loweredType = lowerType(field.type);
-      auto size =
-        field.type.isStruct() || field.type.isArray() ? 4 : field.getByteSize();
+      auto size = field.type != loweredType ? loweredType.getByteSize()
+                                            : field.getByteSize();
 
       // Align the field properly:
       auto mask = size - 1;
