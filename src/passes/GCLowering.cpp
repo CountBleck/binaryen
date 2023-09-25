@@ -25,10 +25,16 @@
 
 namespace wasm {
 
-static const Name STRUCT_NEW("__gc_lowering_struct_new");
+static const Name ALLOCATE("__gc_lowering_allocate");
 static const Name GET_RTT("__gc_lowering_get_rtt");
+static const Name MEMSET8("__gc_lowering_memset8");
+static const Name MEMSET16("__gc_lowering_memset16");
+static const Name MEMSET32("__gc_lowering_memset32");
+static const Name MEMSET64("__gc_lowering_memset64");
+static const Name MEMSET128("__gc_lowering_memset128");
 
-static const std::unordered_set<Name> HELPERS = {STRUCT_NEW, GET_RTT};
+static const std::unordered_set<Name> HELPERS = {
+  ALLOCATE, GET_RTT, MEMSET8, MEMSET16, MEMSET32, MEMSET64};
 
 static const Name GC_LOWERING_MEMORY("__gc_lowering_memory");
 
@@ -102,7 +108,7 @@ struct GCLowering
     Builder builder(*getModule());
 
     auto structNewCall = builder.makeCall(
-      STRUCT_NEW,
+      ALLOCATE,
       {builder.makeConst(structInfo.rttId), builder.makeConst(structInfo.size)},
       Type::i32);
 
@@ -160,6 +166,73 @@ struct GCLowering
                                  memoryName);
       });
   }
+
+  void visitArrayNew(ArrayNew* expr) {
+    auto heapType = expr->type.getHeapType();
+    auto [loweredElemType, elemSize] =
+      lowerFieldWithSize(heapType.getArray().element);
+
+    Builder builder(*getModule());
+
+    auto totalSize = builder.makeBinary(
+      BinaryOp::MulInt32, expr->size, builder.makeConst(elemSize));
+
+    if (expr->isWithDefault()) {
+      auto allocation = builder.makeCall(
+        ALLOCATE,
+        {builder.makeConst(getArrayRttId(heapType)), totalSize},
+        Type::i32);
+      originalTypes[allocation] = expr->type;
+      replaceCurrent(allocation);
+      return;
+    }
+
+    auto allocationLocal = builder.addVar(getFunction(), Type::i32);
+    auto sizeLocal = builder.addVar(getFunction(), Type::i32);
+    auto allocation =
+      builder.makeCall(ALLOCATE,
+                       {builder.makeConst(getArrayRttId(heapType)),
+                        builder.makeLocalTee(sizeLocal, totalSize, Type::i32)},
+                       Type::i32);
+
+    Name memsetTarget;
+    if (elemSize == 1) {
+      memsetTarget = MEMSET8;
+    } else if (elemSize == 2) {
+      memsetTarget = MEMSET16;
+    } else if (elemSize == 4) {
+      memsetTarget = MEMSET32;
+    } else if (elemSize == 8) {
+      memsetTarget = MEMSET64;
+    } else if (elemSize == 16 && getModule()->features.hasSIMD()) {
+      memsetTarget = MEMSET128;
+    } else {
+      WASM_UNREACHABLE("unexpected element size for array");
+    }
+
+    auto memset = builder.makeCall(
+      memsetTarget,
+      {builder.makeLocalTee(allocationLocal, allocation, Type::i32),
+       loweredElemType.isFloat()
+         ? builder.makeUnary(elemSize == 4 ? UnaryOp::ReinterpretFloat32
+                                           : UnaryOp::ReinterpretFloat64,
+                             expr->init)
+         : expr->init,
+       builder.makeLocalGet(sizeLocal, Type::i32)},
+      Type::none);
+
+    auto block = builder.makeBlock(
+      {memset, builder.makeLocalGet(allocationLocal, Type::i32)}, Type::i32);
+
+    originalTypes[block] = expr->type;
+    replaceCurrent(block);
+  }
+
+  void visitArrayNewFixed(ArrayNewFixed* expr) { WASM_UNREACHABLE("TODO"); }
+
+  void visitArrayInitData(ArrayInitData* expr) { WASM_UNREACHABLE("TODO"); }
+
+  void visitArrayInitElem(ArrayInitElem* expr) { WASM_UNREACHABLE("TODO"); }
 
   void visitFunction(Function* func) {
     auto signature = func->getSig();
@@ -222,6 +295,12 @@ private:
     return iterator != originalTypes.end() ? iterator->second : expr->type;
   }
 
+  uint32_t nextRttId() {
+    auto rttId = structs.size() + arrays.size();
+    assert(rttId <= std::numeric_limits<uint32_t>::max());
+    return static_cast<uint32_t>(rttId);
+  }
+
   const StructInfo& getLoweredStructInfo(const HeapType& heapType) {
     auto iterator = structs.find(heapType);
     if (iterator != structs.end()) {
@@ -232,9 +311,7 @@ private:
     uint32_t offset = 0;
 
     for (auto& field : heapType.getStruct().fields) {
-      auto loweredType = lowerType(field.type);
-      auto size = field.type != loweredType ? loweredType.getByteSize()
-                                            : field.getByteSize();
+      auto [loweredType, size] = lowerFieldWithSize(field);
 
       // Align the field properly:
       auto mask = size - 1;
@@ -246,9 +323,16 @@ private:
       offset += size;
     }
 
-    auto rttId = structs.size() + arrays.size();
-    assert(rttId <= std::numeric_limits<uint32_t>::max());
-    return structs[heapType] = {static_cast<uint32_t>(rttId), offset, fields};
+    return structs[heapType] = {nextRttId(), offset, fields};
+  }
+
+  uint32_t getArrayRttId(const HeapType& heapType) {
+    auto iterator = arrays.find(heapType);
+    if (iterator != arrays.end()) {
+      return iterator->second;
+    }
+
+    return arrays[heapType] = nextRttId();
   }
 
   Type lowerType(const Type& type) {
@@ -274,6 +358,13 @@ private:
       loweredTypes.push_back(lowerType(type));
     }
     return loweredTypes;
+  }
+
+  std::pair<Type, uint32_t> lowerFieldWithSize(const Field& field) {
+    auto loweredType = lowerType(field.type);
+    auto size = field.type != loweredType ? loweredType.getByteSize()
+                                          : field.getByteSize();
+    return {loweredType, size};
   }
 
   template<typename StructGetSet, typename Callback>
