@@ -33,7 +33,7 @@ static const Name MEMSET32("__gc_lowering_memset32");
 static const Name MEMSET64("__gc_lowering_memset64");
 static const Name MEMSET128("__gc_lowering_memset128");
 
-static const std::unordered_set<Name> HELPERS = {
+static const Name HELPER_NAMES[] = {
   ALLOCATE, GET_RTT, MEMSET8, MEMSET16, MEMSET32, MEMSET64};
 
 static const Name GC_LOWERING_MEMORY("__gc_lowering_memory");
@@ -108,7 +108,7 @@ struct GCLowering
     Builder builder(*getModule());
 
     auto structNewCall = builder.makeCall(
-      ALLOCATE,
+      getHelper(ALLOCATE),
       {builder.makeConst(structInfo.rttId), builder.makeConst(structInfo.size)},
       Type::i32);
 
@@ -179,7 +179,7 @@ struct GCLowering
 
     if (expr->isWithDefault()) {
       auto allocation = builder.makeCall(
-        ALLOCATE,
+        getHelper(ALLOCATE),
         {builder.makeConst(getArrayRttId(heapType)), totalSize},
         Type::i32);
       originalTypes[allocation] = expr->type;
@@ -190,22 +190,22 @@ struct GCLowering
     auto allocationLocal = builder.addVar(getFunction(), Type::i32);
     auto sizeLocal = builder.addVar(getFunction(), Type::i32);
     auto allocation =
-      builder.makeCall(ALLOCATE,
+      builder.makeCall(getHelper(ALLOCATE),
                        {builder.makeConst(getArrayRttId(heapType)),
                         builder.makeLocalTee(sizeLocal, totalSize, Type::i32)},
                        Type::i32);
 
     Name memsetTarget;
     if (elemSize == 1) {
-      memsetTarget = MEMSET8;
+      memsetTarget = getHelper(MEMSET8);
     } else if (elemSize == 2) {
-      memsetTarget = MEMSET16;
+      memsetTarget = getHelper(MEMSET16);
     } else if (elemSize == 4) {
-      memsetTarget = MEMSET32;
+      memsetTarget = getHelper(MEMSET32);
     } else if (elemSize == 8) {
-      memsetTarget = MEMSET64;
-    } else if (elemSize == 16 && getModule()->features.hasSIMD()) {
-      memsetTarget = MEMSET128;
+      memsetTarget = getHelper(MEMSET64);
+    } else if (elemSize == 16) {
+      memsetTarget = getHelper(MEMSET128);
     } else {
       WASM_UNREACHABLE("unexpected element size for array");
     }
@@ -253,22 +253,13 @@ struct GCLowering
 
     structs.clear();
     arrays.clear();
+    helpers.clear();
+
+    for (auto helperName : HELPER_NAMES) {
+      resolveHelper(helperName);
+    }
 
     super::doWalkModule(module);
-    module->removeExports([&](Export* exportMember) {
-      if (exportMember->kind != ExternalKind::Function) {
-        return false;
-      }
-
-      auto helperName = exportMember->value;
-      if (!HELPERS.count(helperName)) {
-        return false;
-      }
-
-      return exportMember->name.toString() ==
-             helperName.toString() + "_dummy_export";
-    });
-
     originalTypes.clear();
   }
 
@@ -285,10 +276,38 @@ private:
     std::vector<FieldInfo> fields;
   };
 
+  std::unordered_map<Name, Name> helpers;
+
   Name memoryName;
   std::unordered_map<HeapType, StructInfo> structs;
   std::unordered_map<HeapType, uint32_t> arrays;
   std::unordered_map<Expression*, Type> originalTypes;
+
+  void resolveHelper(const Name& helperName) {
+    // TODO: Use pass options to override the __gc_lowering_ prefixed names
+    auto module = getModule();
+    auto helperExport = module->getExportOrNull(helperName);
+
+    if (!helperExport) {
+      return;
+    }
+
+    if (helperExport->kind != ExternalKind::Function) {
+      Fatal() << "GC helper " << helperName << " must be a function";
+    }
+
+    module->removeExport(helperName);
+    helpers.insert({helperName, helperExport->value});
+  }
+
+  Name getHelper(const Name& helperName) {
+    auto iterator = helpers.find(helperName);
+    if (iterator == helpers.end()) {
+      Fatal() << "missing GC helper: " << helperName;
+    }
+
+    return iterator->second;
+  }
 
   const Type& getOriginalType(Expression* expr) {
     auto iterator = originalTypes.find(expr);
