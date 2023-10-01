@@ -112,26 +112,37 @@ struct GCLowering
       {builder.makeConst(structInfo.rttId), builder.makeConst(structInfo.size)},
       Type::i32);
 
-    if (expr->isWithDefault()) {
-      originalTypes[structNewCall] = expr->type;
-      replaceCurrent(structNewCall);
-      return;
-    }
-
     auto structLocal = builder.addVar(getFunction(), Type::i32);
     auto block = builder.makeBlock(
       {builder.makeLocalSet(structLocal, structNewCall)}, Type::i32);
 
-    for (size_t i = 0; i < structInfo.fields.size(); i++) {
-      auto& field = structInfo.fields[i];
+    if (expr->isWithDefault()) {
+      auto size = builder.makeConst(structInfo.size);
+      auto zero = builder.makeConst<uint32_t>(0);
+
       block->list.push_back(
-        builder.makeStore(field.size,
-                          field.offset,
-                          field.size,
-                          builder.makeLocalGet(structLocal, Type::i32),
-                          expr->operands[i],
-                          field.loweredType,
-                          memoryName));
+        getModule()->features.hasBulkMemory()
+          ? static_cast<Expression*>(builder.makeMemoryFill(
+              builder.makeLocalGet(structLocal, Type::i32),
+              zero,
+              size,
+              memoryName))
+          : static_cast<Expression*>(builder.makeCall(
+              getHelper(MEMSET8),
+              {builder.makeLocalGet(structLocal, Type::i32), zero, size},
+              Type::none)));
+    } else {
+      for (size_t i = 0; i < structInfo.fields.size(); i++) {
+        auto& field = structInfo.fields[i];
+        block->list.push_back(
+          builder.makeStore(field.size,
+                            field.offset,
+                            field.size,
+                            builder.makeLocalGet(structLocal, Type::i32),
+                            expr->operands[i],
+                            field.loweredType,
+                            memoryName));
+      }
     }
 
     block->list.push_back(builder.makeLocalGet(structLocal, Type::i32));
@@ -174,17 +185,18 @@ struct GCLowering
 
     Builder builder(*getModule());
 
+    auto features = getModule()->features;
+    auto init = expr->init;
     auto totalSize = builder.makeBinary(
       BinaryOp::MulInt32, expr->size, builder.makeConst(elemSize));
 
     if (expr->isWithDefault()) {
-      auto allocation = builder.makeCall(
-        getHelper(ALLOCATE),
-        {builder.makeConst(getArrayRttId(heapType)), totalSize},
-        Type::i32);
-      originalTypes[allocation] = expr->type;
-      replaceCurrent(allocation);
-      return;
+      init = builder.makeConst<uint32_t>(0);
+
+      // Use the memory.fill path to zero the memory
+      if (features.hasBulkMemory()) {
+        elemSize = 1;
+      }
     }
 
     auto allocationLocal = builder.addVar(getFunction(), Type::i32);
@@ -195,13 +207,12 @@ struct GCLowering
                         builder.makeLocalTee(sizeLocal, totalSize, Type::i32)},
                        Type::i32);
 
-    auto features = getModule()->features;
     Expression* memset;
 
     if (elemSize == 1 && features.hasBulkMemory()) {
       memset = builder.makeMemoryFill(
         builder.makeLocalTee(allocationLocal, allocation, Type::i32),
-        expr->init,
+        init,
         builder.makeLocalGet(sizeLocal, Type::i32),
         memoryName);
     } else {
