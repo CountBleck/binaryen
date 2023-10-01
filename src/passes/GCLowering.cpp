@@ -195,31 +195,42 @@ struct GCLowering
                         builder.makeLocalTee(sizeLocal, totalSize, Type::i32)},
                        Type::i32);
 
-    Name memsetTarget;
-    if (elemSize == 1) {
-      memsetTarget = getHelper(MEMSET8);
-    } else if (elemSize == 2) {
-      memsetTarget = getHelper(MEMSET16);
-    } else if (elemSize == 4) {
-      memsetTarget = getHelper(MEMSET32);
-    } else if (elemSize == 8) {
-      memsetTarget = getHelper(MEMSET64);
-    } else if (elemSize == 16) {
-      memsetTarget = getHelper(MEMSET128);
-    } else {
-      WASM_UNREACHABLE("unexpected element size for array");
-    }
+    auto features = getModule()->features;
+    Expression* memset;
 
-    auto memset = builder.makeCall(
-      memsetTarget,
-      {builder.makeLocalTee(allocationLocal, allocation, Type::i32),
-       loweredElemType.isFloat()
-         ? builder.makeUnary(elemSize == 4 ? UnaryOp::ReinterpretFloat32
-                                           : UnaryOp::ReinterpretFloat64,
-                             expr->init)
-         : expr->init,
-       builder.makeLocalGet(sizeLocal, Type::i32)},
-      Type::none);
+    if (elemSize == 1 && features.hasBulkMemory()) {
+      memset = builder.makeMemoryFill(
+        builder.makeLocalTee(allocationLocal, allocation, Type::i32),
+        expr->init,
+        builder.makeLocalGet(sizeLocal, Type::i32),
+        memoryName);
+    } else {
+      Name memsetTarget;
+      if (elemSize == 1) {
+        memsetTarget = getHelper(MEMSET8);
+      } else if (elemSize == 2) {
+        memsetTarget = getHelper(MEMSET16);
+      } else if (elemSize == 4) {
+        memsetTarget = getHelper(MEMSET32);
+      } else if (elemSize == 8) {
+        memsetTarget = getHelper(MEMSET64);
+      } else if (elemSize == 16) {
+        memsetTarget = getHelper(MEMSET128);
+      } else {
+        WASM_UNREACHABLE("unexpected element size for array");
+      }
+
+      memset = builder.makeCall(
+        memsetTarget,
+        {builder.makeLocalTee(allocationLocal, allocation, Type::i32),
+         loweredElemType.isFloat()
+           ? builder.makeUnary(elemSize == 4 ? UnaryOp::ReinterpretFloat32
+                                             : UnaryOp::ReinterpretFloat64,
+                               expr->init)
+           : expr->init,
+         builder.makeLocalGet(sizeLocal, Type::i32)},
+        Type::none);
+    }
 
     auto block = builder.makeBlock(
       {memset, builder.makeLocalGet(allocationLocal, Type::i32)}, Type::i32);
